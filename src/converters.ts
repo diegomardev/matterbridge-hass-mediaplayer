@@ -343,6 +343,22 @@ export const hassUpdateStateConverter: { domain: string; state: string; clusterI
 
     { domain: 'binary_sensor', state: 'on', clusterId: BooleanState.Cluster.id, attribute: 'stateValue', value: true },
     { domain: 'binary_sensor', state: 'off', clusterId: BooleanState.Cluster.id, attribute: 'stateValue', value: false },
+
+    // media_player -> OnOff
+    { domain: 'media_player', state: 'off',        clusterId: OnOff.Cluster.id, attribute: 'onOff', value: false },
+    { domain: 'media_player', state: 'unavailable',clusterId: OnOff.Cluster.id, attribute: 'onOff', value: false },
+    { domain: 'media_player', state: 'unknown',    clusterId: OnOff.Cluster.id, attribute: 'onOff', value: false },
+    
+    { domain: 'media_player', state: 'on',         clusterId: OnOff.Cluster.id, attribute: 'onOff', value: true },
+    { domain: 'media_player', state: 'idle',       clusterId: OnOff.Cluster.id, attribute: 'onOff', value: true },
+    { domain: 'media_player', state: 'playing',    clusterId: OnOff.Cluster.id, attribute: 'onOff', value: true },
+    { domain: 'media_player', state: 'paused',     clusterId: OnOff.Cluster.id, attribute: 'onOff', value: true },
+    { domain: 'media_player', state: 'buffering',  clusterId: OnOff.Cluster.id, attribute: 'onOff', value: true },
+
+    { domain: 'remote', state: 'on',         clusterId: OnOff.Cluster.id, attribute: 'onOff', value: true },
+    { domain: 'remote', state: 'off',        clusterId: OnOff.Cluster.id, attribute: 'onOff', value: false },
+    { domain: 'remote', state: 'unavailable',clusterId: OnOff.Cluster.id, attribute: 'onOff', value: false },
+    { domain: 'remote', state: 'unknown',    clusterId: OnOff.Cluster.id, attribute: 'onOff', value: false },
   ];
 
 /** Update Home Assistant attributes to Matterbridge device attributes */
@@ -417,6 +433,8 @@ export const hassDomainConverter: { domain: string; withAttribute?: string; devi
     { domain: 'vacuum',                                 deviceType: roboticVacuumCleaner,   clusterId: RvcOperationalState.Cluster.id },
     { domain: 'sensor',                                 deviceType: null,                   clusterId: null },
     { domain: 'binary_sensor',                          deviceType: null,                   clusterId: null },
+    { domain: 'media_player',                           deviceType: onOffOutlet,            clusterId: OnOff.Cluster.id },
+    { domain: 'remote',                                 deviceType: onOffOutlet,            clusterId: OnOff.Cluster.id },
   ];
 
 /** Convert Home Assistant sensor domains attributes to Matterbridge device types and clusterIds */
@@ -517,6 +535,17 @@ export const hassCommandConverter: { command: keyof MatterbridgeEndpointCommands
     { command: 'resume',                  domain: 'vacuum', service: 'start' },
     { command: 'goHome',                  domain: 'vacuum', service: 'return_to_base' },
     { command: 'changeToMode',            domain: 'vacuum', service: 'start' },
+
+
+    // media_player
+    { command: 'on',     domain: 'media_player', service: 'turn_on' },
+    { command: 'off',    domain: 'media_player', service: 'turn_off' },
+    { command: 'toggle', domain: 'media_player', service: 'toggle' },
+    
+    // remote
+    { command: 'on',     domain: 'remote', service: 'turn_on' },
+    { command: 'off',    domain: 'remote', service: 'turn_off' },
+    { command: 'toggle', domain: 'remote', service: 'toggle' },
   ];
 
 /**
