@@ -134,7 +134,18 @@ export class HomeAssistantPlatform extends MatterbridgeDynamicPlatform {
   readonly individualEntitiesDomains = ['automation', 'scene', 'script', 'input_boolean', 'input_button'];
   /** Supported core domains */
   readonly supportedCoreDomains = ['switch', 'light', 'lock', 'fan', 'cover', 'climate', 'valve', 'vacuum'];
-
+  readonly supportedCoreDomains = [
+    'switch',
+    'light',
+    'lock',
+    'fan',
+    'cover',
+    'climate',
+    'valve',
+    'vacuum',
+    'media_player',
+    'remote',
+  ];
   // Brings to the frontend the most important messages.
   readonly filterMessages: { message: string; timeout: number; severity: 'error' | 'success' | 'info' | 'warning' | undefined }[] = [];
   filteredDevices = 0;
