@@ -22,14 +22,49 @@
 ---
 ## For install need node 24
 ```
+# Install NVM (Node Version Manager)
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+
+# Reload your shell so `nvm` is available (pick the one you use)
+# source ~/.bashrc
+# source ~/.zshrc
+
+# Install and use Node.js 24 (required by this project)
 nvm install 24
+nvm use 24
+
+# Verify Node / npm versions
 node -v
 npm -v
+
+# Clone the repository
 git clone https://github.com/diegomardev/matterbridge-hass-diegomardev
 cd matterbridge-hass-diegomardev/
+
+# (Optional but recommended) Clean the working tree (removes node_modules, dist, etc.)
+# WARNING: this deletes ALL untracked files in the repo folder.
+git clean -fdx
+
+# Install dependencies (exact versions from package-lock.json)
 npm ci
+
+# Ensure package.json version is "plain" x.y.z
+# (npmPack will fail if the version already contains -dev-... from a previous failed run)
+npm pkg set version="1.0.8"
+
+# Install Matterbridge globally and link it locally
+# This makes TypeScript able to resolve `matterbridge/*` imports during compilation
+npm i -g matterbridge@3.5.6
+npm link matterbridge
+
+# Make sure TypeScript CLI (`tsc`) is available in PATH (extra safety)
+npm i -g typescript
+
+# Build and package the plugin into a .tgz tarball for Matterbridge "UPLOAD"
 npm run npmPack
+
+# List the generated tarball (upload this file in Matterbridge UI)
+ls -lh matterbridge-hass-*.tgz
 ```
 
 This plugin allows you to expose the Home Assistant devices and individual entities to Matter.
