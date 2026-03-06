@@ -51,10 +51,11 @@ npm ci
 # Ensure package.json version is "plain" x.y.z
 # (npmPack will fail if the version already contains -dev-... from a previous failed run)
 npm pkg set version="1.0.8"
-
+# 1) Cambiar el nombre del paquete
+npm pkg set name="matterbridge-hass-diegomardev"
 # Install Matterbridge globally and link it locally
 # This makes TypeScript able to resolve `matterbridge/*` imports during compilation
-npm i -g matterbridge@3.5.6
+npm i -g matterbridge
 npm link matterbridge
 
 # Make sure TypeScript CLI (`tsc`) is available in PATH (extra safety)
