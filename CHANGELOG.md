@@ -14,6 +14,28 @@ If you like this project and find it useful, please consider giving it a **star*
 
 > For naming issues (especially upsetting with Alexa), read the explanation and the solution [here](https://github.com/Luligu/matterbridge-hass/discussions/86).
 
+## [1.0.11] - 2026-03-21
+
+### Added
+
+- [helpers]: Add support for helpers domains (`automation`, `scene`, `script`, `input_boolean`, `input_button`) in device entities and split entities.
+- [button]: Add domain `button` in individual entities, device entities and split entities.
+
+### Changed
+
+- [platform]: Require Matterbridge v.3.7.0.
+- [package]: Update dependencies.
+- [package]: Bump package to `automator` v.3.1.3.
+- [package]: Bump `typescript-eslint` to v.8.57.1.
+- [devcontainer]: Update `Dev Container` configuration.
+- [devcontainer]: Add postStartCommand to the `Dev Container` configuration.
+- [package]: Refactor `build.yml` to use matterbridge dev branch for push and main for pull requests.
+- [package]: Add `type checking` script for Jest tests.
+- [package]: Update actions versions in workflows.
+- [package]: Bump `eslint` to v.10.1.0.
+
+<a href="https://www.buymeacoffee.com/luligugithub"><img src="https://matterbridge.io/assets/bmc-button.svg" alt="Buy me a coffee" width="80"></a>
+
 ## [1.0.10] - 2026-03-09
 
 ### Breaking Changes
