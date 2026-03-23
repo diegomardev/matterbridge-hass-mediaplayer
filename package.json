@@ -1,6 +1,6 @@
 {
   "name": "matterbridge-hass-mediaplayer",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "description": "Matterbridge Home Assistant plugin with media_player support",
   "author": "diegomardev",
   "license": "Apache-2.0",
