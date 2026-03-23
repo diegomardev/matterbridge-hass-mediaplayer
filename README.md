@@ -18,14 +18,20 @@
 [![powered by](https://img.shields.io/badge/powered%20by-node--persist--manager-blue)](https://www.npmjs.com/package/node-persist-manager)
 
 ---
+
 # matterbridge-hass-mediaplayer
+
 ---
+
 ## For update only with media_player
+
 Only download the matterbridge-hass-5.9.20-dev-20260309-b3c0c5f.tgz file and upload in the plugins section and restart the app matterbridge
 <img width="1329" height="289" alt="image" src="https://github.com/user-attachments/assets/c88f73f3-1243-4ebb-8fe6-3cc31bd04533" />
 
 ---
+
 ## For install need node 24
+
 ```
 # Install NVM (Node Version Manager)
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
@@ -125,6 +131,7 @@ Features:
 | climate    | off, heat, cool, heat_cool, auto          | current_temperature, temperature, target_temp_low, target_temp_high, min_temp, max_temp |
 | valve      | open, closed, opening, closing            | current_position                                                                        |
 | vacuum (2) | idle, cleaning, paused, docked, returning |                                                                                         |
+| button     |                                           |                                                                                         |
 
 (1) - Supported preset_modes: auto, low, medium, high.
 
@@ -143,6 +150,8 @@ These domains are supported also like individual and split entities.
 | input_button  | Helpers     |
 
 These individual entities are exposed as on/off outlets. When the outlet is turned on, it triggers the associated entity. After triggering, the outlet automatically switches back to the off state. The helper of domain input_boolean maintains the on/off state.
+
+These domains are supported also like device entities and split entities.
 
 ## Supported sensors:
 
@@ -275,15 +284,11 @@ Number of times to try to reconnect before giving up.
 
 ### filterByArea
 
-Filter devices and individual entities by area. If enabled, only devices, individual entities and split entities in the selected areas will be exposed. If disabled, all devices, individual entities and split entities will be exposed. This doesn't filter entities that belong to a device unless applyFiltersToDeviceEntities is set (in this case also the device needs to belong to this area).
+Filter devices and individual entities by area. If enabled, only devices, individual entities, and split entities in the selected area will be exposed. If disabled, all devices, individual entities, and split entities will be exposed. A device is also exposed if it has any entities that satisfy the filters.
 
 ### filterByLabel
 
-Filter devices and individual entities by label. If enabled, only devices, individual entities and split entities with the selected labels will be exposed. If disabled, all devices, individual entities and split entities will be exposed. This doesn't filter entities that belong to a device unless applyFiltersToDeviceEntities is set (in this case also the device must have this label).
-
-### applyFiltersToDeviceEntities
-
-Apply the filters also to device entities. If enabled, the filters will be applied to device entities as well (in this case both the device and its entities need to have the area and label that you specified in the filters). If disabled, the filters will only be applied to devices (in this case, all the entities that belong to the device will be included).
+Filter devices and individual entities by label. If enabled, only devices, individual entities, and split entities with the selected label will be exposed. If disabled, all devices, individual entities, and split entities will be exposed. A device is also exposed if it has any entities that satisfy the filters.
 
 ### whiteList
 

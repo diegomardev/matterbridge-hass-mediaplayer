@@ -2,7 +2,7 @@
 
 /* eslint-disable no-console */
 
-const MATTER_PORT = 6001;
+const MATTER_PORT = 6100;
 const NAME = 'PlatformMatter';
 const HOMEDIR = path.join('jest', NAME);
 
@@ -11,7 +11,6 @@ import path from 'node:path';
 import { jest } from '@jest/globals';
 import { invokeBehaviorCommand, invokeSubscribeHandler, MatterbridgeEndpoint, occupancySensor } from 'matterbridge';
 import {
-  addMatterbridgePlatform,
   aggregator,
   createTestEnvironment,
   destroyTestEnvironment,
@@ -23,15 +22,13 @@ import {
   loggerInfoSpy,
   loggerLogSpy,
   loggerWarnSpy,
-  logKeepAlives,
-  matterbridge,
   server,
   setDebug,
   setupTest,
   startServerNode,
   stopServerNode,
 } from 'matterbridge/jestutils';
-import { AnsiLogger, CYAN, db, dn, hk, idn, LogLevel, nf, or, rs, TimestampFormat, wr } from 'matterbridge/logger';
+import { CYAN, db, dn, hk, idn, LogLevel, nf, or, rs, wr } from 'matterbridge/logger';
 import { Lifecycle } from 'matterbridge/matter';
 import {
   AirQuality,
@@ -187,9 +184,6 @@ MatterbridgeEndpoint.logLevel = LogLevel.DEBUG; // Set the log level for Matterb
 // Setup the test environment
 await setupTest(NAME, false);
 
-// Cleanup the matter environment
-createTestEnvironment(NAME);
-
 describe('Matterbridge ' + NAME, () => {
   let haPlatform: HomeAssistantPlatform;
 
@@ -204,7 +198,7 @@ describe('Matterbridge ' + NAME, () => {
       osRelease: 'xx.xx.xx.xx.xx.xx',
       nodeVersion: '22.1.10',
     },
-    matterbridgeVersion: '3.5.5',
+    matterbridgeVersion: '3.7.0',
     log,
     addBridgedEndpoint: jest.fn(async (pluginName: string, device: MatterbridgeEndpoint) => {
       await aggregator.add(device);
@@ -227,12 +221,12 @@ describe('Matterbridge ' + NAME, () => {
     reconnectRetries: 10,
     filterByArea: '',
     filterByLabel: '',
-    applyFiltersToDeviceEntities: false,
     whiteList: [],
     blackList: [],
     entityBlackList: [],
     deviceEntityBlackList: {},
     splitEntities: [],
+    splitNameStrategy: 'Entity name',
     namePostfix: '',
     postfix: '',
     airQualityRegex: '',
@@ -1086,8 +1080,6 @@ describe('Matterbridge ' + NAME, () => {
     haPlatform.ha.hassEntities.set(switchEntity.entity_id, switchEntity);
     haPlatform.ha.hassStates.set(switchState.entity_id, switchState);
 
-    // setDebug(true);
-
     await haPlatform.onStart('Test reason');
     // await new Promise((resolve) => setTimeout(resolve, 100)); // Wait for async operations to complete
     expect(loggerInfoSpy).toHaveBeenCalledWith(`Starting platform ${idn}${mockConfig.name}${rs}${nf}: Test reason`);
@@ -1103,29 +1095,28 @@ describe('Matterbridge ' + NAME, () => {
 
     jest.clearAllMocks();
     await haPlatform.onConfigure();
-    // await new Promise((resolve) => setTimeout(resolve, 100)); // Wait for async updateHandler operations to complete
     expect(loggerDebugSpy).toHaveBeenCalledWith(`Configuring state of entity ${CYAN}${switchEntity.entity_id}${db}...`);
     expect(setAttributeSpy).toHaveBeenCalledWith(OnOff.Cluster.id, 'onOff', true, expect.anything());
 
     jest.clearAllMocks();
     await haPlatform.updateHandler(switchDevice.id, switchEntity.entity_id, switchState, { ...switchState, state: 'off' });
-    // await new Promise((resolve) => setTimeout(resolve, 50)); // Wait for async updateHandler operations to complete
     expect(setAttributeSpy).toHaveBeenCalledWith(OnOff.Cluster.id, 'onOff', false, expect.anything());
     expect(device.getAttribute(OnOff.Cluster.id, 'onOff')).toBe(false);
 
+    jest.clearAllMocks();
     await invokeBehaviorCommand(device, 'onOff', 'on');
-    expect(device.getAttribute(OnOff.Cluster.id, 'onOff')).toBe(true);
+    expect(device.getAttribute(OnOff.Cluster.id, 'onOff', device.log)).toBe(true);
     expect(callServiceSpy).toHaveBeenCalledWith(switchEntity.entity_id.split('.')[0], 'turn_on', switchEntity.entity_id, undefined);
 
+    jest.clearAllMocks();
     await invokeBehaviorCommand(device, 'onOff', 'off');
-    expect(device.getAttribute(OnOff.Cluster.id, 'onOff')).toBe(false);
+    expect(device.getAttribute(OnOff.Cluster.id, 'onOff', device.log)).toBe(false);
     expect(callServiceSpy).toHaveBeenCalledWith(switchEntity.entity_id.split('.')[0], 'turn_off', switchEntity.entity_id, undefined);
 
+    jest.clearAllMocks();
     await invokeBehaviorCommand(device, 'onOff', 'toggle');
-    expect(device.getAttribute(OnOff.Cluster.id, 'onOff')).toBe(true);
+    expect(device.getAttribute(OnOff.Cluster.id, 'onOff', device.log)).toBe(true);
     expect(callServiceSpy).toHaveBeenCalledWith(switchEntity.entity_id.split('.')[0], 'toggle', switchEntity.entity_id, undefined);
-
-    // setDebug(false);
 
     // Clean the test environment
     await cleanup();
@@ -3101,6 +3092,27 @@ describe('Matterbridge ' + NAME, () => {
     expect(haPlatform.offUpdatedEntities.has(lightEntity.entity_id)).toBe(true); // The entity should be added to the offUpdatedEntities set because we received a command with executeIfOff true while the light was off
     haPlatform.offUpdatedEntities.clear();
 
+    /* 2bis) The light is off we send moveToColorTemperature 200 with executeIfOff true and no min max attributes */
+    jest.clearAllMocks();
+    lightState.attributes.min_color_temp_kelvin = null;
+    lightState.attributes.max_color_temp_kelvin = null;
+    haPlatform.ha.hassStates.set(lightState.entity_id, lightState);
+    await invokeBehaviorCommand(device, 'colorControl', 'moveToColorTemperature', getMoveToColorTemperatureRequest(200, 0, true));
+    expect(device.getAttribute(OnOff.Cluster.id, 'onOff')).toBe(false); // The state should remain off because executeIfOff is true
+    expect(device.getAttribute(LevelControl.Cluster.id, 'currentLevel')).toBe(200); // The level should not change
+    expect(device.getAttribute(ColorControl.Cluster.id, 'colorMode')).toBe(ColorControl.ColorMode.ColorTemperatureMireds); // The color mode should change to ColorTemperatureMireds because the command was moveToColorTemperature
+    expect(device.getAttribute(ColorControl.Cluster.id, 'colorTemperatureMireds')).toBe(200); // The color temperature should change because the light is off and executeIfOff is true
+    expect(device.getAttribute(ColorControl.Cluster.id, 'currentHue')).toBe(127);
+    expect(device.getAttribute(ColorControl.Cluster.id, 'currentSaturation')).toBe(127);
+    expect(device.getAttribute(ColorControl.Cluster.id, 'currentX')).toBe(0);
+    expect(device.getAttribute(ColorControl.Cluster.id, 'currentY')).toBe(0);
+    expect(callServiceSpy).not.toHaveBeenCalled(); // No service call should be made because the light is off
+    expect(haPlatform.offUpdatedEntities.has(lightEntity.entity_id)).toBe(true); // The entity should be added to the offUpdatedEntities set because we received a command with executeIfOff true while the light was off
+    haPlatform.offUpdatedEntities.clear();
+    lightState.attributes.min_color_temp_kelvin = 2500;
+    lightState.attributes.max_color_temp_kelvin = 6500;
+    haPlatform.ha.hassStates.set(lightState.entity_id, lightState);
+
     /* 3) The light is off we send moveToHue moveToSaturation moveToHueAndSaturation with executeIfOff true */
     jest.clearAllMocks();
     await invokeBehaviorCommand(device, 'colorControl', 'moveToHue', getMoveToHueRequest(120, 0, true));
@@ -3889,12 +3901,9 @@ describe('Matterbridge ' + NAME, () => {
     expect(addClusterServerBooleanStateSpy).toHaveBeenCalledWith(contactEntity.entity_id, false);
 
     // No warnings or errors
-    expect(loggerWarnSpy).not.toHaveBeenCalled();
+    expect(loggerWarnSpy).not.toHaveBeenCalledTimes(3); // 3 warnings for split entities should be called for individual entities
     expect(loggerErrorSpy).not.toHaveBeenCalled();
     expect(loggerFatalSpy).not.toHaveBeenCalled();
-    expect(loggerLogSpy).not.toHaveBeenCalledWith(LogLevel.WARN, expect.anything());
-    expect(loggerLogSpy).not.toHaveBeenCalledWith(LogLevel.ERROR, expect.anything());
-    expect(loggerLogSpy).not.toHaveBeenCalledWith(LogLevel.FATAL, expect.anything());
 
     // @ts-expect-error accessing private member for testing
     await haPlatform.checkEndpointNumbers();

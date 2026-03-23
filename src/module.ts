@@ -23,20 +23,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable jsdoc/reject-any-type */
 
-import fs from 'node:fs';
+import fs, { appendFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-import {
-  bridgedNode,
-  electricalSensor,
-  MatterbridgeDynamicPlatform,
-  MatterbridgeEndpoint,
-  onOffOutlet,
-  PlatformConfig,
-  PlatformMatterbridge,
-  powerSource,
-  PrimitiveTypes,
-} from 'matterbridge';
+import { bridgedNode, electricalSensor, MatterbridgeDynamicPlatform, MatterbridgeEndpoint, PlatformConfig, PlatformMatterbridge, powerSource, PrimitiveTypes } from 'matterbridge';
 import { AnsiLogger, CYAN, db, debugStringify, dn, er, hk, idn, ign, LogLevel, nf, or, rs, wr, YELLOW } from 'matterbridge/logger';
 import { ActionContext } from 'matterbridge/matter';
 import { BridgedDeviceBasicInformation, ColorControl, LevelControl, OnOff, PowerSource } from 'matterbridge/matter/clusters';
@@ -44,6 +34,7 @@ import { ClusterId, ClusterRegistry } from 'matterbridge/matter/types';
 import { deepEqual, inspectError, isValidArray, isValidBoolean, isValidNumber, isValidObject, isValidString, waiter } from 'matterbridge/utils';
 
 import { addBinarySensorEntity } from './binary_sensor.entity.js';
+import { addButtonEntity } from './button.entity.js';
 import { addControlEntity } from './control.entity.js';
 import {
   clamp,
@@ -57,6 +48,7 @@ import {
   miredsToKelvin,
 } from './converters.js';
 import { addEventEntity } from './event.entity.js';
+import { addHelperEntity } from './helper.entity.js';
 // Plugin imports
 import { HassArea, HassConfig as HassConfig, HassDevice, HassEntity, HassLabel, HassServices, HassState, HomeAssistant, HomeAssistantPrimitive } from './homeAssistant.js';
 import { MutableDevice } from './mutableDevice.js';
@@ -73,12 +65,12 @@ export interface HomeAssistantPlatformConfig extends PlatformConfig {
   filterByArea: string;
   /** Filter devices and entities by label name */
   filterByLabel: string;
-  applyFiltersToDeviceEntities: boolean;
   whiteList: string[];
   blackList: string[];
   entityBlackList: string[];
   deviceEntityBlackList: Record<string, string[]>;
   splitEntities: string[];
+  splitNameStrategy: 'Entity name' | 'Friendly name';
   namePostfix: string;
   postfix: string;
   airQualityRegex: string;
@@ -131,9 +123,9 @@ export class HomeAssistantPlatform extends MatterbridgeDynamicPlatform {
   airQualityRegex: RegExp | undefined;
 
   /** Domains that are treated as individual entities */
-  readonly individualEntitiesDomains = ['automation', 'scene', 'script', 'input_boolean', 'input_button'];
+  readonly supportedHelpersDomains = ['automation', 'scene', 'script', 'input_boolean', 'input_button'];
   /** Supported core domains */
-  //readonly supportedCoreDomains = ['switch', 'light', 'lock', 'fan', 'cover', 'climate', 'valve', 'vacuum'];
+  // readonly supportedCoreDomains = ['switch', 'light', 'lock', 'fan', 'cover', 'climate', 'valve', 'vacuum'];
   readonly supportedCoreDomains = ['switch', 'light', 'lock', 'fan', 'cover', 'climate', 'valve', 'vacuum', 'media_player', 'remote'];
   // Brings to the frontend the most important messages.
   readonly filterMessages: { message: string; timeout: number; severity: 'error' | 'success' | 'info' | 'warning' | undefined }[] = [];
@@ -167,9 +159,9 @@ export class HomeAssistantPlatform extends MatterbridgeDynamicPlatform {
     super(matterbridge, log, config);
 
     // Verify that Matterbridge is the correct version
-    if (this.verifyMatterbridgeVersion === undefined || typeof this.verifyMatterbridgeVersion !== 'function' || !this.verifyMatterbridgeVersion('3.5.0')) {
+    if (this.verifyMatterbridgeVersion === undefined || typeof this.verifyMatterbridgeVersion !== 'function' || !this.verifyMatterbridgeVersion('3.7.0')) {
       throw new Error(
-        `This plugin requires Matterbridge version >= "3.5.0". Please update Matterbridge from ${this.matterbridge.matterbridgeVersion} to the latest version in the frontend."`,
+        `This plugin requires Matterbridge version >= "3.7.0". Please update Matterbridge from ${this.matterbridge.matterbridgeVersion} to the latest version in the frontend."`,
       );
     }
 
@@ -191,12 +183,15 @@ export class HomeAssistantPlatform extends MatterbridgeDynamicPlatform {
       this.config.reconnectRetries = isValidNumber(config.reconnectRetries, 0) ? config.reconnectRetries : 10;
       this.config.filterByArea = isValidString(this.config.filterByArea, 1) ? this.config.filterByArea : '';
       this.config.filterByLabel = isValidString(this.config.filterByLabel, 1) ? this.config.filterByLabel : '';
-      this.config.applyFiltersToDeviceEntities = isValidBoolean(this.config.applyFiltersToDeviceEntities) ? this.config.applyFiltersToDeviceEntities : false;
       this.config.whiteList = isValidArray(this.config.whiteList, 1) ? this.config.whiteList : [];
       this.config.blackList = isValidArray(this.config.blackList, 1) ? this.config.blackList : [];
       this.config.entityBlackList = isValidArray(this.config.entityBlackList, 1) ? this.config.entityBlackList : [];
       this.config.deviceEntityBlackList = isValidObject(this.config.deviceEntityBlackList, 1) ? this.config.deviceEntityBlackList : {};
       this.config.splitEntities = this.config.splitEntities === undefined ? [] : this.config.splitEntities;
+      this.config.splitNameStrategy =
+        isValidString(this.config.splitNameStrategy, 10) && ['Entity name', 'Friendly name'].includes(this.config.splitNameStrategy)
+          ? this.config.splitNameStrategy
+          : 'Entity name';
       this.config.namePostfix = isValidString(this.config.namePostfix, 1, 3) ? this.config.namePostfix : '';
       this.config.postfix = isValidString(this.config.postfix, 1, 3) ? this.config.postfix : '';
       this.config.airQualityRegex = isValidString(this.config.airQualityRegex, 1) ? this.config.airQualityRegex : '';
@@ -335,6 +330,48 @@ export class HomeAssistantPlatform extends MatterbridgeDynamicPlatform {
     // Save devices, entities, states, config and services to a local file without awaiting
     this.savePayload(path.join(this.matterbridge.matterbridgePluginDirectory, 'matterbridge-hass', 'homeassistant.json'));
 
+    // Create a map of entity_id to device_id for quick lookup of the device of an entity
+    const areaId = Array.from(this.ha.hassAreas.values()).find((a) => a.name === this.config.filterByArea)?.area_id;
+    const labelId = Array.from(this.ha.hassLabels.values()).find((l) => l.name === this.config.filterByLabel)?.label_id;
+    const reportPath = path.join(this.matterbridge.matterbridgePluginDirectory, 'matterbridge-hass', 'report.log');
+    writeFileSync(reportPath, `Home Assistant Devices and Entities Report\n\n`); // Create or overwrite the report file
+    appendFileSync(reportPath, `Filter by area: ${this.config.filterByArea ? this.config.filterByArea + ' >>> ' + areaId : 'None'}\n\n`); // Create or overwrite the report file
+    appendFileSync(reportPath, `Filter by label: ${this.config.filterByLabel ? this.config.filterByLabel + ' >>> ' + labelId : 'None'}\n\n`); // Create or overwrite the report file
+    appendFileSync(reportPath, `Device Entities\n\n`);
+    for (const device of Array.from(this.ha.hassDevices.values())) {
+      appendFileSync(
+        reportPath,
+        `Device: "${device.name_by_user ?? device.name}"` +
+          `${(device.name_by_user ?? device.name ?? '').length > 32 ? ' LONGNAME' : ''}` +
+          `${device.entry_type === 'service' ? ' SERVICE' : ''}` +
+          `${areaId && device.area_id === areaId ? ' AREA' : ''}` +
+          `${labelId && device.labels?.includes(labelId) ? ' LABEL' : ''}` +
+          `\n`,
+      );
+      for (const entity of Array.from(this.ha.hassEntities.values()).filter((e) => e.device_id === device.id)) {
+        const state = this.ha.hassStates.get(entity.entity_id);
+        appendFileSync(
+          reportPath,
+          `-  Entity: ${entity.entity_id} "${state?.attributes?.friendly_name}" - "${entity.name ?? entity.original_name}"` +
+            `${(state?.attributes?.friendly_name ?? entity.name ?? entity.original_name ?? '').length > 32 ? ' LONGNAME' : ''}` +
+            `${areaId && entity.area_id === areaId ? ' AREA' : ''}` + // Devices entities cannot be in a different area than their device.
+            `${labelId && entity.labels?.includes(labelId) ? ' LABEL' : ''}` +
+            `${this.config.splitEntities?.includes(entity.entity_id) ? ' SPLIT' : ''}\n`,
+        );
+      }
+    }
+    appendFileSync(reportPath, `\nIndividual Entities\n\n`);
+    for (const entity of Array.from(this.ha.hassEntities.values()).filter((e) => e.device_id === null)) {
+      const state = this.ha.hassStates.get(entity.entity_id);
+      appendFileSync(
+        reportPath,
+        `Individual Entity: ${entity.entity_id} "${state?.attributes?.friendly_name}" - "${entity.name ?? entity.original_name}"` +
+          `${(state?.attributes?.friendly_name ?? entity.name ?? entity.original_name ?? '').length > 32 ? ' LONGNAME' : ''}` +
+          `${areaId && entity.area_id === areaId ? ' AREA' : ''}` +
+          `${labelId && entity.labels?.includes(labelId) ? ' LABEL' : ''}\n`,
+      );
+    }
+
     // Clean the selectDevice and selectEntity maps
     await this.ready;
     await this.clearSelect();
@@ -343,6 +380,8 @@ export class HomeAssistantPlatform extends MatterbridgeDynamicPlatform {
     for (const entityId of this.config.splitEntities || []) {
       if (!this.ha.hassEntities.has(entityId))
         this.log.warn(`Split entity "${CYAN}${entityId}${wr}" set in splitEntities not found in Home Assistant. Please check your configuration.`);
+      if (this.ha.hassEntities.has(entityId) && this.ha.hassEntities.get(entityId)?.device_id === null)
+        this.log.warn(`Split entity "${CYAN}${entityId}${wr}" set in splitEntities is an individual entity. Please check your configuration.`);
     }
 
     // *********************************************************************************************************
@@ -352,11 +391,12 @@ export class HomeAssistantPlatform extends MatterbridgeDynamicPlatform {
       const [domain, name] = entity.entity_id.split('.');
       // Skip not supported domains.
       if (
-        !this.individualEntitiesDomains.includes(domain) &&
+        !this.supportedHelpersDomains.includes(domain) &&
         !this.supportedCoreDomains.includes(domain) &&
         domain !== 'sensor' &&
         domain !== 'binary_sensor' &&
-        domain !== 'event'
+        domain !== 'event' &&
+        domain !== 'button'
       ) {
         this.log.debug(`Individual entity ${CYAN}${entity.entity_id}${db} has unsupported domain ${CYAN}${domain}${db}. Skipping...`);
         continue;
@@ -372,7 +412,10 @@ export class HomeAssistantPlatform extends MatterbridgeDynamicPlatform {
         continue;
       }
       // If the entity doesn't have a valid name, we skip it.
-      const entityName = entity.name ?? entity.original_name;
+      const entityName =
+        this.config.splitNameStrategy === 'Friendly name'
+          ? (hassState.attributes?.friendly_name ?? entity.name ?? entity.original_name)
+          : (entity.name ?? entity.original_name ?? hassState.attributes?.friendly_name);
       if (!isValidString(entityName, 1)) {
         this.log.debug(`Individual entity ${CYAN}${entity.entity_id}${db} has no valid name. Skipping...`);
         continue;
@@ -394,7 +437,7 @@ export class HomeAssistantPlatform extends MatterbridgeDynamicPlatform {
       if (!this.isValidAreaLabel(entity.area_id, entity.labels)) {
         this.filteredEntities++;
         this.log.info(
-          `Individual entity ${CYAN}${entityName}${db} is not in the area "${CYAN}${this.config.filterByArea}${db}" or doesn't have the label "${CYAN}${this.config.filterByLabel}${db}". Skipping...`,
+          `Individual entity ${CYAN}${entityName}${nf} is not in the area "${CYAN}${this.config.filterByArea}${nf}" or doesn't have the label "${CYAN}${this.config.filterByLabel}${nf}". Skipping...`,
         );
         continue;
       }
@@ -417,52 +460,11 @@ export class HomeAssistantPlatform extends MatterbridgeDynamicPlatform {
         0x8000,
         domain,
       );
+      mutableDevice.setLogLevel(this.log.logLevel);
       mutableDevice.addDeviceTypes('', bridgedNode);
 
-      // Lookup and add individual entities domains.
-      if (this.individualEntitiesDomains.includes(domain)) {
-        // Set the composed type and configUrl based on the domain
-        if (domain === 'automation') {
-          mutableDevice.setComposedType(`Hass Automation`);
-          mutableDevice.setConfigUrl(`${(this.config.host as string | undefined)?.replace('ws://', 'http://').replace('wss://', 'https://')}/config/automation/dashboard`);
-        } else if (domain === 'scene') {
-          mutableDevice.setComposedType(`Hass Scene`);
-          mutableDevice.setConfigUrl(`${(this.config.host as string | undefined)?.replace('ws://', 'http://').replace('wss://', 'https://')}/config/scene/dashboard`);
-        } else if (domain === 'script') {
-          mutableDevice.setComposedType(`Hass Script`);
-          mutableDevice.setConfigUrl(`${(this.config.host as string | undefined)?.replace('ws://', 'http://').replace('wss://', 'https://')}/config/script/dashboard`);
-        } else if (domain === 'input_boolean') {
-          mutableDevice.setComposedType(`Hass Boolean`);
-          mutableDevice.setConfigUrl(`${(this.config.host as string | undefined)?.replace('ws://', 'http://').replace('wss://', 'https://')}/config/helpers`);
-        } else if (domain === 'input_button') {
-          mutableDevice.setComposedType(`Hass Button`);
-          mutableDevice.setConfigUrl(`${(this.config.host as string | undefined)?.replace('ws://', 'http://').replace('wss://', 'https://')}/config/helpers`);
-        }
-
-        // Add to the main endpoint onOffOutlet device type and the OnOffCluster
-        mutableDevice.addDeviceTypes('', onOffOutlet);
-        mutableDevice.addCommandHandler('', 'on', async (data, _endpointName, _command) => {
-          if (domain === 'automation') {
-            await this.ha.callService(domain, 'trigger', entity.entity_id);
-          } else if (domain === 'input_button') {
-            await this.ha.callService(domain, 'press', entity.entity_id);
-          } else {
-            await this.ha.callService(domain, 'turn_on', entity.entity_id);
-          }
-          // We revert the state after 500ms except for input_boolean and switch template that mantain the state
-          if (domain !== 'input_boolean' && domain !== 'switch') {
-            setTimeout(() => {
-              // istanbul ignore next cause is too long
-              data.endpoint.setAttribute(OnOff.Cluster.id, 'onOff', false, data.endpoint.log);
-            }, 500).unref();
-          }
-        });
-        mutableDevice.addCommandHandler('', 'off', async (_data, _endpointName, _command) => {
-          // We don't revert only for input_boolean and switch template
-          if (domain === 'input_boolean' /* || domain === 'switch'*/) await this.ha.callService(domain, 'turn_off', entity.entity_id);
-        });
-      }
-
+      // Lookup and add helpers domain entity.
+      if (this.supportedHelpersDomains.includes(domain)) addHelperEntity(mutableDevice, '', entity, hassState, this);
       // Set the device mode for the Rvc.
       if (domain === 'vacuum' && this.config.enableServerRvc) mutableDevice.setMode('server');
       // Lookup and add core domains entity.
@@ -474,6 +476,8 @@ export class HomeAssistantPlatform extends MatterbridgeDynamicPlatform {
       if (domain === 'binary_sensor') addBinarySensorEntity(mutableDevice, entity, hassState, this.log);
       // Lookup and add event domain entity.
       if (domain === 'event') addEventEntity(mutableDevice, entity, hassState, this.log);
+      // Lookup and add button domain entity.
+      if (domain === 'button') addButtonEntity(mutableDevice, '', entity, hassState, this);
       // Add PowerSource with battery feature if the entity is a battery
       if (mutableDevice.get().deviceTypes.includes(powerSource)) {
         mutableDevice.addClusterServerBatteryPowerSource('', PowerSource.BatChargeLevel.Ok, 200);
@@ -549,10 +553,14 @@ export class HomeAssistantPlatform extends MatterbridgeDynamicPlatform {
         continue;
       }
       // Apply area and label filters before the select and validation
-      if (!this.isValidAreaLabel(device.area_id, device.labels)) {
+      const hasValidEntities = Array.from(this.ha.hassEntities.values()).some(
+        (e) => e.device_id === device.id && e.disabled_by === null && this.isValidAreaLabel(e.area_id, e.labels, true), // Only check labels
+      );
+      const deviceHasValidAreaLabel = hasValidEntities ? false : this.isValidAreaLabel(device.area_id, device.labels);
+      if (!hasValidEntities && !deviceHasValidAreaLabel) {
         this.filteredDevices++;
         this.log.info(
-          `Device ${CYAN}${deviceName}${db} is not in the area "${CYAN}${this.config.filterByArea}${db}" or doesn't have the label "${CYAN}${this.config.filterByLabel}${db}". Skipping...`,
+          `Device ${CYAN}${deviceName}${nf} is not in the area "${CYAN}${this.config.filterByArea}${nf}" or doesn't have the label "${CYAN}${this.config.filterByLabel}${nf}". Skipping...`,
         );
         continue;
       }
@@ -588,6 +596,7 @@ export class HomeAssistantPlatform extends MatterbridgeDynamicPlatform {
         0x8000,
         device.model ?? 'Unknown',
       );
+      mutableDevice.setLogLevel(this.log.logLevel);
       mutableDevice.addDeviceTypes('', bridgedNode);
       if (battery) {
         mutableDevice.addDeviceTypes('', powerSource);
@@ -605,7 +614,14 @@ export class HomeAssistantPlatform extends MatterbridgeDynamicPlatform {
         const entityName = entity.name ?? entity.original_name ?? deviceName;
         let endpointName = entity.entity_id;
         // Skip not supported domains.
-        if (!this.supportedCoreDomains.includes(domain) && domain !== 'sensor' && domain !== 'binary_sensor' && domain !== 'event') {
+        if (
+          !this.supportedHelpersDomains.includes(domain) &&
+          !this.supportedCoreDomains.includes(domain) &&
+          domain !== 'sensor' &&
+          domain !== 'binary_sensor' &&
+          domain !== 'event' &&
+          domain !== 'button'
+        ) {
           this.log.debug(`Lookup device ${CYAN}${device.name}${db} entity ${CYAN}${entity.entity_id}${db} has unsupported domain ${CYAN}${domain}${db}. Skipping...`);
           continue;
         }
@@ -620,10 +636,10 @@ export class HomeAssistantPlatform extends MatterbridgeDynamicPlatform {
           continue;
         }
         // Apply area and label filters before the select and validation
-        if (this.config.applyFiltersToDeviceEntities && !this.isValidAreaLabel(entity.area_id, entity.labels)) {
+        if (!deviceHasValidAreaLabel && !this.isValidAreaLabel(entity.area_id, entity.labels, true)) {
           this.filteredEntities++;
           this.log.info(
-            `Device ${CYAN}${deviceName}${db} entity ${CYAN}${entity.entity_id}${db} is not in the area "${CYAN}${this.config.filterByArea}${db}" or doesn't have the label "${CYAN}${this.config.filterByLabel}${db}". Skipping...`,
+            `Device ${CYAN}${deviceName}${nf} entity ${CYAN}${entity.entity_id}${nf} is not in the area "${CYAN}${this.config.filterByArea}${nf}" or doesn't have the label "${CYAN}${this.config.filterByLabel}${nf}". Skipping...`,
           );
           continue;
         }
@@ -637,6 +653,12 @@ export class HomeAssistantPlatform extends MatterbridgeDynamicPlatform {
         if (!this.validateEntity(deviceName, entity.entity_id, true)) {
           this.unselectedEntities++;
           continue;
+        }
+        // Lookup and add helpers domain entity.
+        const eHelper = addHelperEntity(mutableDevice, entity.entity_id, entity, hassState, this);
+        if (eHelper !== undefined) {
+          endpointName = eHelper;
+          this.endpointNames.set(entity.entity_id, endpointName); // Set the endpoint name for the entity
         }
         // Set the entity mode for the Rvc.
         if (domain === 'vacuum' && this.config.enableServerRvc) mutableDevice.setMode('server');
@@ -663,6 +685,12 @@ export class HomeAssistantPlatform extends MatterbridgeDynamicPlatform {
         const eEvent = addEventEntity(mutableDevice, entity, hassState, this.log);
         if (eEvent !== undefined) {
           endpointName = eEvent;
+          this.endpointNames.set(entity.entity_id, endpointName); // Set the endpoint name for the entity
+        }
+        // Lookup and add button domain entity.
+        const eButton = addButtonEntity(mutableDevice, entity.entity_id, entity, hassState, this);
+        if (eButton !== undefined) {
+          endpointName = eButton;
           this.endpointNames.set(entity.entity_id, endpointName); // Set the endpoint name for the entity
         }
         // Found a supported entity domain
@@ -723,11 +751,12 @@ export class HomeAssistantPlatform extends MatterbridgeDynamicPlatform {
       const [domain, name] = entity.entity_id.split('.');
       // Skip not supported domains.
       if (
-        !this.individualEntitiesDomains.includes(domain) &&
+        !this.supportedHelpersDomains.includes(domain) &&
         !this.supportedCoreDomains.includes(domain) &&
         domain !== 'sensor' &&
         domain !== 'binary_sensor' &&
-        domain !== 'event'
+        domain !== 'event' &&
+        domain !== 'button'
       ) {
         this.log.debug(`Split entity ${CYAN}${entity.entity_id}${db} has unsupported domain ${CYAN}${domain}${db}. Skipping...`);
         continue;
@@ -743,7 +772,10 @@ export class HomeAssistantPlatform extends MatterbridgeDynamicPlatform {
         continue;
       }
       // If the entity doesn't have a valid name, we skip it.
-      const entityName = entity.name ?? entity.original_name;
+      const entityName =
+        this.config.splitNameStrategy === 'Friendly name'
+          ? (hassState.attributes?.friendly_name ?? entity.name ?? entity.original_name)
+          : (entity.name ?? entity.original_name ?? hassState.attributes?.friendly_name);
       if (!isValidString(entityName, 1)) {
         this.log.debug(`Split entity ${CYAN}${entity.entity_id}${db} has no valid name. Skipping...`);
         continue;
@@ -764,10 +796,22 @@ export class HomeAssistantPlatform extends MatterbridgeDynamicPlatform {
         continue;
       }
       // Apply area and label filters before the select and validation
-      if (!this.isValidAreaLabel(entity.area_id, entity.labels)) {
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const device = this.ha.hassDevices.get(entity.device_id!);
+      const deviceHasValidEntities =
+        device !== undefined &&
+        Array.from(this.ha.hassEntities.values()).some(
+          (e) => e.device_id === entity.device_id && e.disabled_by === null && this.isValidAreaLabel(e.area_id, e.labels, true), // Only check labels
+        );
+      const deviceHasValidAreaLabel = deviceHasValidEntities ? false : device && this.isValidAreaLabel(device.area_id, device.labels);
+      this.log.debug(
+        `Split entity ${CYAN}${entity.entity_id}${db} name ${CYAN}${entityName}${db} deviceHasValidEntities ${deviceHasValidEntities} deviceHasValidAreaLabel ${deviceHasValidAreaLabel} isValidAreaLabel ${this.isValidAreaLabel(entity.area_id, entity.labels, true)}`,
+      );
+
+      if (!deviceHasValidAreaLabel && !this.isValidAreaLabel(entity.area_id, entity.labels, true)) {
         this.filteredEntities++;
         this.log.info(
-          `Split entity ${CYAN}${entity.entity_id}${db} name ${CYAN}${entityName}${db} is not in the area "${CYAN}${this.config.filterByArea}${db}" or doesn't have the label "${CYAN}${this.config.filterByLabel}${db}". Skipping...`,
+          `Split entity ${CYAN}${entity.entity_id}${nf} name ${CYAN}${entityName}${nf} is not in the area "${CYAN}${this.config.filterByArea}${nf}" or doesn't have the label "${CYAN}${this.config.filterByLabel}${nf}". Skipping...`,
         );
         continue;
       }
@@ -790,8 +834,11 @@ export class HomeAssistantPlatform extends MatterbridgeDynamicPlatform {
         0x8000,
         domain,
       );
+      mutableDevice.setLogLevel(this.log.logLevel);
       mutableDevice.addDeviceTypes('', bridgedNode);
 
+      // Lookup and add helpers domain entity.
+      if (this.supportedHelpersDomains.includes(domain)) addHelperEntity(mutableDevice, '', entity, hassState, this);
       // Set the device mode for the Rvc.
       if (domain === 'vacuum' && this.config.enableServerRvc) mutableDevice.setMode('server');
       // Lookup and add core domains entity.
@@ -803,6 +850,8 @@ export class HomeAssistantPlatform extends MatterbridgeDynamicPlatform {
       if (domain === 'binary_sensor') addBinarySensorEntity(mutableDevice, entity, hassState, this.log);
       // Lookup and add event domain entity.
       if (domain === 'event') addEventEntity(mutableDevice, entity, hassState, this.log);
+      // Lookup and add button domain entity.
+      if (domain === 'button') addButtonEntity(mutableDevice, '', entity, hassState, this);
       // Add PowerSource with battery feature if the entity is a battery
       if (mutableDevice.get().deviceTypes.includes(powerSource)) {
         mutableDevice.addClusterServerBatteryPowerSource('', PowerSource.BatChargeLevel.Ok, 200);
@@ -856,7 +905,7 @@ export class HomeAssistantPlatform extends MatterbridgeDynamicPlatform {
         if (this.endpointNames.get(entity.entity_id) === undefined) continue;
         // Skip unsupported domains
         const [domain, _name] = entity.entity_id.split('.');
-        if (!this.individualEntitiesDomains.includes(domain) && !this.supportedCoreDomains.includes(domain) && domain !== 'sensor' && domain !== 'binary_sensor') continue;
+        if (!this.supportedHelpersDomains.includes(domain) && !this.supportedCoreDomains.includes(domain) && domain !== 'sensor' && domain !== 'binary_sensor') continue;
 
         this.log.debug(`Configuring state of entity ${CYAN}${state.entity_id}${db}...`);
         await this.updateHandler(entity.device_id, entity.entity_id, state, state);
@@ -1027,7 +1076,8 @@ export class HomeAssistantPlatform extends MatterbridgeDynamicPlatform {
               serviceAttributes['color_temp_kelvin'] =
                 state && state.attributes.min_color_temp_kelvin && state.attributes.max_color_temp_kelvin
                   ? clamp(miredsToKelvin(color_temp, 'floor'), state.attributes.min_color_temp_kelvin, state.attributes.max_color_temp_kelvin)
-                  : miredsToKelvin(color_temp, 'floor');
+                  : // istanbul ignore next cause is just a safety check, it should never happen that we don't have the min and max color temp attributes
+                    miredsToKelvin(color_temp, 'floor');
           }
 
           if (
@@ -1191,7 +1241,7 @@ export class HomeAssistantPlatform extends MatterbridgeDynamicPlatform {
         `from ${YELLOW}${old_state.state}${db} with ${debugStringify(old_state.attributes)}${db} to ${YELLOW}${new_state.state}${db} with ${debugStringify(new_state.attributes)}`,
     );
     const domain = entityId.split('.')[0];
-    if (['automation', 'scene', 'script', 'input_button'].includes(domain)) {
+    if (['automation', 'scene', 'script', 'input_button', 'button'].includes(domain)) {
       // No update for individual entities (automation, scene, script) only for input_boolean that maintains the state
       return;
     } else if (domain === 'sensor') {
@@ -1318,6 +1368,7 @@ export class HomeAssistantPlatform extends MatterbridgeDynamicPlatform {
    *
    * @param {string | null} area_id The area ID of the device / entity. It is null if the device / entity is not in any area.
    * @param {string[]} labels The labels ids of the device / entity. It is an empty array if the device / entity has no labels.
+   * @param {boolean} [labelOnly] If true, only the label filter will be applied, otherwise both area and label filters will be applied.
    *
    * @returns {boolean} True if the area and label are valid according to the filters, false otherwise.
    *
@@ -1325,19 +1376,12 @@ export class HomeAssistantPlatform extends MatterbridgeDynamicPlatform {
    * "area_id" is the area ID of the device / entity. It is null if the device / entity is not in any area or a string with the area ID if it is in an area.
    * "labels" is an array of label IDs of the device / entity. It is an empty array if the device / entity has no labels.
    */
-  isValidAreaLabel(area_id: string | null, labels: string[]): boolean {
+  isValidAreaLabel(area_id: string | null, labels: string[], labelOnly: boolean = false): boolean {
     let areaMatch = true;
     let labelMatch = true;
 
     // Filter by area if configured
-    if (isValidString(this.config.filterByArea, 1)) {
-      /*
-      this.log.debug(
-        `Filtering by area "${CYAN}${this.config.filterByArea}${db}" area_id "${area_id}" registry "${Array.from(this.ha.hassAreas.values())
-          .map((area) => area.area_id + '=>"' + area.name + '"')
-          .join(', ')}"...`,
-      );
-      */
+    if (!labelOnly && isValidString(this.config.filterByArea, 1)) {
       if (!area_id) return false; // If the area_id is null, the device / entity is not in any area, so we skip it.
       areaMatch = false;
       const area = this.ha.hassAreas.get(area_id);
@@ -1347,13 +1391,6 @@ export class HomeAssistantPlatform extends MatterbridgeDynamicPlatform {
 
     // Filter by label if configured.
     if (isValidString(this.config.filterByLabel, 1)) {
-      /*
-      this.log.debug(
-        `Filtering by label "${CYAN}${this.config.filterByLabel}${db}" labels (${labels.length}) "${labels.join(', ')}" registry "${Array.from(this.ha.hassLabels.values())
-          .map((label) => label.label_id + '=>"' + label.name + '"')
-          .join(', ')}"...`,
-      );
-      */
       if (labels.length === 0) return false; // If the labels array is empty, the device / entity has no labels, so we skip it.
       labelMatch = false;
       const label = Array.from(this.ha.hassLabels.values()).find((l) => l.name === this.config.filterByLabel);

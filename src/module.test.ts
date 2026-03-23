@@ -31,8 +31,6 @@ import {
   setAttributeSpy,
   setDebug,
   setupTest,
-  startMatterbridgeEnvironment,
-  stopMatterbridgeEnvironment,
   triggerSwitchEventSpy,
 } from 'matterbridge/jestutils';
 import { CYAN, db, dn, er, idn, ign, LogLevel, nf, or, rs, wr } from 'matterbridge/logger';
@@ -81,12 +79,12 @@ describe('HassPlatform', () => {
     reconnectRetries: 10,
     filterByArea: '',
     filterByLabel: '',
-    applyFiltersToDeviceEntities: false,
     whiteList: [],
     blackList: [],
     entityBlackList: [],
     deviceEntityBlackList: {},
     splitEntities: [],
+    splitNameStrategy: 'Entity name',
     namePostfix: '',
     postfix: '',
     airQualityRegex: '',
@@ -239,7 +237,7 @@ describe('HassPlatform', () => {
   it('should not initialize platform with wrong version', () => {
     matterbridge.matterbridgeVersion = '1.5.5';
     expect(() => new HomeAssistantPlatform(matterbridge, log, mockConfig)).toThrow();
-    matterbridge.matterbridgeVersion = '3.5.0';
+    matterbridge.matterbridgeVersion = '3.7.0';
   });
 
   it('should validate with white and black list', () => {
@@ -373,10 +371,22 @@ describe('HassPlatform', () => {
     expect(haPlatform.isValidAreaLabel(null, ['foo'])).toBe(false);
   });
 
+  it('returns true if filterByArea is set and areaId is null and labelOnly is true', () => {
+    mockConfig.filterByArea = 'Living Room'; // area1 is Living Room
+    mockConfig.filterByLabel = '';
+    expect(haPlatform.isValidAreaLabel(null, ['foo'], true)).toBe(true);
+  });
+
   it('returns false if filterByArea is set and areaId does not match', () => {
     mockConfig.filterByArea = 'Living Room'; // area1 is Living Room
     mockConfig.filterByLabel = '';
     expect(haPlatform.isValidAreaLabel('area2', ['foo'])).toBe(false);
+  });
+
+  it('returns true if filterByArea is set and areaId does not match and labelOnly is true', () => {
+    mockConfig.filterByArea = 'Living Room'; // area1 is Living Room
+    mockConfig.filterByLabel = '';
+    expect(haPlatform.isValidAreaLabel('area2', ['foo'], true)).toBe(true);
   });
 
   it('returns false if filterByArea is set and areaId does not exist', () => {
@@ -843,10 +853,8 @@ describe('HassPlatform', () => {
     jest.clearAllMocks();
     mockConfig.filterByArea = '';
     mockConfig.filterByLabel = 'Label 1';
-    mockConfig.applyFiltersToDeviceEntities = false;
     haPlatform.config.filterByArea = '';
     haPlatform.config.filterByLabel = 'Label 1';
-    haPlatform.config.applyFiltersToDeviceEntities = false;
 
     haPlatform.ha.emit('labels', Array.from(haPlatform.ha.hassLabels.values()));
     await new Promise((resolve) => setTimeout(resolve, 100)); // Allow async event handling to complete
@@ -864,10 +872,8 @@ describe('HassPlatform', () => {
     (mockData.devices as HassDevice[]).forEach((d) => haPlatform.ha.hassDevices.set(d.id, { ...d, labels: ['label_id_1'] }));
     mockConfig.filterByArea = '';
     mockConfig.filterByLabel = 'Label 1';
-    mockConfig.applyFiltersToDeviceEntities = true;
     haPlatform.config.filterByArea = '';
     haPlatform.config.filterByLabel = 'Label 1';
-    haPlatform.config.applyFiltersToDeviceEntities = true;
 
     haPlatform.ha.emit('labels', Array.from(haPlatform.ha.hassLabels.values()));
     await new Promise((resolve) => setTimeout(resolve, 100)); // Allow async event handling to complete
@@ -878,14 +884,71 @@ describe('HassPlatform', () => {
 
     expect(loggerInfoSpy).toHaveBeenCalledWith(`Starting platform ${idn}${mockConfig.name}${rs}${nf}: `);
     expect(loggerInfoSpy).toHaveBeenCalledWith(expect.stringContaining(`doesn't have the label`));
-    expect(haPlatform.matterbridgeDevices.size).toBe(0);
+    expect(haPlatform.matterbridgeDevices.size).toBe(24);
 
+    await haPlatform.unregisterAllDevices();
     mockConfig.filterByArea = '';
     mockConfig.filterByLabel = '';
-    mockConfig.applyFiltersToDeviceEntities = false;
     haPlatform.config.filterByArea = '';
     haPlatform.config.filterByLabel = '';
-    haPlatform.config.applyFiltersToDeviceEntities = false;
+  });
+
+  it('should register a device with label filter', async () => {
+    expect(haPlatform).toBeDefined();
+
+    (mockData.devices as HassDevice[]).forEach((d) => haPlatform.ha.hassDevices.set(d.id, d));
+    (mockData.entities as HassEntity[]).forEach((e) => haPlatform.ha.hassEntities.set(e.id, e));
+    (mockData.states as HassState[]).forEach((s) => haPlatform.ha.hassStates.set(s.entity_id, s));
+    (mockData.areas as HassArea[]).forEach((a) => haPlatform.ha.hassAreas.set(a.area_id, a));
+    (mockData.labels as HassLabel[]).forEach((l) => haPlatform.ha.hassLabels.set(l.label_id, l));
+
+    (mockData.devices as HassDevice[]).filter((d) => d.name === '1PM Plus II').forEach((d) => haPlatform.ha.hassDevices.set(d.id, { ...d, labels: ['label_id_1'] }));
+    mockConfig.filterByArea = '';
+    mockConfig.filterByLabel = 'Label 1';
+    haPlatform.config.filterByArea = '';
+    haPlatform.config.filterByLabel = 'Label 1';
+
+    await haPlatform.onStart();
+
+    expect(loggerInfoSpy).toHaveBeenCalledWith(`Starting platform ${idn}${mockConfig.name}${rs}${nf}: `);
+    expect(loggerInfoSpy).toHaveBeenCalledWith(expect.stringContaining(`doesn't have the label`));
+    expect(haPlatform.matterbridgeDevices.size).toBe(1);
+
+    await haPlatform.unregisterAllDevices();
+    mockConfig.filterByArea = '';
+    mockConfig.filterByLabel = '';
+    haPlatform.config.filterByArea = '';
+    haPlatform.config.filterByLabel = '';
+  });
+
+  it('should register a device with 1 entity label filter', async () => {
+    expect(haPlatform).toBeDefined();
+
+    (mockData.devices as HassDevice[]).forEach((d) => haPlatform.ha.hassDevices.set(d.id, d));
+    (mockData.entities as HassEntity[]).forEach((e) => haPlatform.ha.hassEntities.set(e.id, e));
+    (mockData.states as HassState[]).forEach((s) => haPlatform.ha.hassStates.set(s.entity_id, s));
+    (mockData.areas as HassArea[]).forEach((a) => haPlatform.ha.hassAreas.set(a.area_id, a));
+    (mockData.labels as HassLabel[]).forEach((l) => haPlatform.ha.hassLabels.set(l.label_id, l));
+
+    (mockData.entities as HassEntity[])
+      .filter((e) => e.entity_id === 'sensor.my_shelly_1pm_plus_ii_switch_0_current')
+      .forEach((e) => haPlatform.ha.hassEntities.set(e.id, { ...e, labels: ['label_id_1'] }));
+    mockConfig.filterByArea = '';
+    mockConfig.filterByLabel = 'Label 1';
+    haPlatform.config.filterByArea = '';
+    haPlatform.config.filterByLabel = 'Label 1';
+
+    await haPlatform.onStart();
+
+    expect(loggerInfoSpy).toHaveBeenCalledWith(`Starting platform ${idn}${mockConfig.name}${rs}${nf}: `);
+    expect(loggerInfoSpy).toHaveBeenCalledWith(expect.stringContaining(`doesn't have the label`));
+    expect(haPlatform.matterbridgeDevices.size).toBe(1);
+
+    await haPlatform.unregisterAllDevices();
+    mockConfig.filterByArea = '';
+    mockConfig.filterByLabel = '';
+    haPlatform.config.filterByArea = '';
+    haPlatform.config.filterByLabel = '';
   });
 
   it('should not register any devices and individual entities without white lists', async () => {
@@ -895,6 +958,7 @@ describe('HassPlatform', () => {
     (mockData.entities as HassEntity[]).forEach((e) => haPlatform.ha.hassEntities.set(e.id, e));
     (mockData.states as HassState[]).forEach((s) => haPlatform.ha.hassStates.set(s.entity_id, s));
     (mockData.areas as HassArea[]).forEach((a) => haPlatform.ha.hassAreas.set(a.area_id, a));
+    (mockData.labels as HassLabel[]).forEach((l) => haPlatform.ha.hassLabels.set(l.label_id, l));
 
     mockConfig.whiteList = ['1PM Plus II'];
     mockConfig.blackList = [];
@@ -1013,6 +1077,37 @@ describe('HassPlatform', () => {
     await haPlatform.unregisterDevice(device);
   });
 
+  it('should not register an individual entity with the same name and friendly name', async () => {
+    expect(haPlatform).toBeDefined();
+
+    haPlatform.config.splitNameStrategy = 'Friendly name';
+    const entity = {
+      id: '0123456789abcdef',
+      entity_id: 'scene.turn_off_all_lights',
+      device_id: null,
+      disabled_by: null,
+      name: 'Turn off all lights',
+    } as unknown as HassEntity;
+    haPlatform.ha.hassEntities.set(entity.id, entity);
+    const state = {
+      state: 'off',
+      attributes: { friendly_name: 'Friendly Turn off all lights' },
+    } as HassState;
+    haPlatform.ha.hassStates.set(entity.entity_id, state);
+
+    expect(entity.name).toBeDefined();
+    if (!entity.name) return;
+    const device = new MatterbridgeEndpoint([onOffOutlet, bridgedNode], { id: 'test' }, true)
+      .createDefaultBridgedDeviceBasicInformationClusterServer(entity.name, entity.entity_id)
+      .addRequiredClusterServers();
+    await haPlatform.registerDevice(device);
+    await haPlatform.onStart('Test reason');
+
+    await haPlatform.unregisterDevice(device);
+
+    haPlatform.config.splitNameStrategy = 'Entity name';
+  });
+
   it('should register a Scene entity', async () => {
     expect(haPlatform).toBeDefined();
 
@@ -1052,8 +1147,8 @@ describe('HassPlatform', () => {
     expect(device).toBeDefined();
     if (!device) return;
     expect(haPlatform.endpointNames.get(entity.entity_id)).toBe('');
-    await device.executeCommandHandler('on', {}, 'onOff', {}, device);
-    await device.executeCommandHandler('off', {}, 'onOff', {}, device);
+    await device.executeCommandHandler('on', {}, 'onOff', {} as any, device);
+    await device.executeCommandHandler('off', {}, 'onOff', {} as any, device);
 
     jest.clearAllMocks();
     await haPlatform.onConfigure();
@@ -1101,8 +1196,8 @@ describe('HassPlatform', () => {
     expect(device).toBeDefined();
     if (!device) return;
     expect(haPlatform.endpointNames.get(entity.entity_id)).toBe('');
-    await device.executeCommandHandler('on', {}, 'onOff', {}, device);
-    await device.executeCommandHandler('off', {}, 'onOff', {}, device);
+    await device.executeCommandHandler('on', {}, 'onOff', {} as any, device);
+    await device.executeCommandHandler('off', {}, 'onOff', {} as any, device);
 
     jest.clearAllMocks();
     await haPlatform.onConfigure();
@@ -1146,8 +1241,8 @@ describe('HassPlatform', () => {
     expect(device).toBeDefined();
     if (!device) return;
     expect(haPlatform.endpointNames.get(entity.entity_id)).toBe('');
-    await device.executeCommandHandler('on', {}, 'onOff', {}, device);
-    await device.executeCommandHandler('off', {}, 'onOff', {}, device);
+    await device.executeCommandHandler('on', {}, 'onOff', {} as any, device);
+    await device.executeCommandHandler('off', {}, 'onOff', {} as any, device);
 
     jest.clearAllMocks();
     await haPlatform.onConfigure();
@@ -1156,7 +1251,7 @@ describe('HassPlatform', () => {
     expect(loggerInfoSpy).toHaveBeenCalledWith(expect.stringContaining(`Configured platform`));
   });
 
-  it('should register an Boolean helper entity', async () => {
+  it('should register an input_boolean helper entity', async () => {
     expect(haPlatform).toBeDefined();
 
     let entity: HassEntity | undefined;
@@ -1191,8 +1286,8 @@ describe('HassPlatform', () => {
     expect(device).toBeDefined();
     if (!device) return;
     expect(haPlatform.endpointNames.get(entity.entity_id)).toBe('');
-    await device.executeCommandHandler('on', {}, 'onOff', {}, device);
-    await device.executeCommandHandler('off', {}, 'onOff', {}, device);
+    await device.executeCommandHandler('on', {}, 'onOff', {} as any, device);
+    await device.executeCommandHandler('off', {}, 'onOff', {} as any, device);
 
     jest.clearAllMocks();
     await haPlatform.onConfigure();
@@ -1201,7 +1296,7 @@ describe('HassPlatform', () => {
     expect(loggerInfoSpy).toHaveBeenCalledWith(expect.stringContaining(`Configured platform`));
   });
 
-  it('should register an Button helper entity', async () => {
+  it('should register an input_button helper entity', async () => {
     expect(haPlatform).toBeDefined();
 
     let entity: HassEntity | undefined;
@@ -1236,13 +1331,57 @@ describe('HassPlatform', () => {
     expect(device).toBeDefined();
     if (!device) return;
     expect(haPlatform.endpointNames.get(entity.entity_id)).toBe('');
-    await device.executeCommandHandler('on', {}, 'onOff', {}, device);
-    await device.executeCommandHandler('off', {}, 'onOff', {}, device);
+    await device.executeCommandHandler('on', {}, 'onOff', {} as any, device);
+    await device.executeCommandHandler('off', {}, 'onOff', {} as any, device);
 
     jest.clearAllMocks();
     await haPlatform.onConfigure();
     expect(loggerInfoSpy).toHaveBeenCalledWith(expect.stringContaining(`Configuring platform`));
     expect(loggerDebugSpy).toHaveBeenCalledWith(`Configuring state of entity ${CYAN}${entity.entity_id}${db}...`);
+    expect(loggerInfoSpy).toHaveBeenCalledWith(expect.stringContaining(`Configured platform`));
+  });
+
+  it('should register a button individual entity', async () => {
+    expect(haPlatform).toBeDefined();
+    const entity = {
+      id: '0123456789abcdef',
+      entity_id: 'button.restart_router',
+      device_id: null,
+      disabled_by: null,
+      name: 'Restart router',
+    } as unknown as HassEntity;
+    haPlatform.ha.hassEntities.set(entity.id, entity);
+    const state = {
+      entity_id: entity.entity_id,
+      state: 'unknown',
+      attributes: { friendly_name: 'Friendly Restart router' },
+    } as HassState;
+    haPlatform.ha.hassStates.set(entity.entity_id, state);
+
+    await haPlatform.onStart('Test reason');
+
+    expect(loggerInfoSpy).toHaveBeenCalledWith(`Starting platform ${idn}${mockConfig.name}${rs}${nf}: Test reason`);
+    expect(loggerInfoSpy).toHaveBeenCalledWith(`Creating device for individual entity ${idn}${entity.name}${rs}${nf} domain ${CYAN}button${nf} name ${CYAN}restart_router${nf}`);
+    expect(loggerDebugSpy).toHaveBeenCalledWith(`Registering device ${dn}${entity.name}${db}...`);
+    expect(matterbridge.addBridgedEndpoint).toHaveBeenCalled();
+
+    jest.clearAllMocks();
+    expect(haPlatform.matterbridgeDevices.size).toBe(1);
+    expect(haPlatform.matterbridgeDevices.get(entity.entity_id)).toBeDefined();
+    expect(haPlatform.matterbridgeDevices.get(entity.entity_id)?.getChildEndpoints()).toHaveLength(0);
+    await haPlatform.updateHandler(entity.entity_id, entity.entity_id, { state: 'off' } as HassState, { state: 'on' } as HassState);
+    expect(loggerLogSpy).toHaveBeenCalledWith(LogLevel.INFO, expect.stringContaining(`${db}Received update event from Home Assistant device`));
+
+    const device = haPlatform.matterbridgeDevices.get(entity.entity_id);
+    expect(device).toBeDefined();
+    if (!device) return;
+    expect(haPlatform.endpointNames.get(entity.entity_id)).toBe('');
+    await device.executeCommandHandler('on', {}, 'onOff', {} as any, device);
+
+    jest.clearAllMocks();
+    await haPlatform.onConfigure();
+    expect(loggerInfoSpy).toHaveBeenCalledWith(expect.stringContaining(`Configuring platform`));
+    expect(loggerDebugSpy).not.toHaveBeenCalledWith(`Configuring state of entity ${CYAN}${entity.entity_id}${db}...`);
     expect(loggerInfoSpy).toHaveBeenCalledWith(expect.stringContaining(`Configured platform`));
   });
 
@@ -1282,8 +1421,8 @@ describe('HassPlatform', () => {
     expect(device).toBeDefined();
     if (!device) return;
     expect(haPlatform.endpointNames.get(entity.entity_id)).toBe('');
-    await device.executeCommandHandler('on', {}, 'onOff', {}, device);
-    await device.executeCommandHandler('off', {}, 'onOff', {}, device);
+    await device.executeCommandHandler('on', {}, 'onOff', {} as any, device);
+    await device.executeCommandHandler('off', {}, 'onOff', {} as any, device);
 
     jest.clearAllMocks();
     await haPlatform.onConfigure();
@@ -1554,7 +1693,6 @@ describe('HassPlatform', () => {
       state: 'off', // 'on' for detected, 'off' for not detected
       attributes: {
         device_class: 'door',
-        friendly_name: 'Switch Contact Sensor',
       },
     } as unknown as HassState;
 
@@ -1685,7 +1823,11 @@ describe('HassPlatform', () => {
       humidityEntity.entity_id,
     ];
 
+    // await setDebug(true);
+
     await haPlatform.onStart('Test reason');
+
+    // await setDebug(false);
 
     expect(loggerInfoSpy).toHaveBeenCalledWith(`Starting platform ${idn}${mockConfig.name}${rs}${nf}: Test reason`);
     expect(loggerInfoSpy).toHaveBeenCalledWith(`Creating device ${idn}${device.name}${rs}${nf} id ${CYAN}${device.id}${nf}...`);
@@ -1702,7 +1844,7 @@ describe('HassPlatform', () => {
       `Split entity ${CYAN}${duplicatednameEntity.entity_id}${wr} name "${CYAN}${duplicatednameEntity.original_name}${wr}" already exists as a registered device. Please change the name in Home Assistant.`,
     );
     expect(loggerInfoSpy).toHaveBeenCalledWith(
-      `Split entity ${CYAN}${humidityEntity.entity_id}${db} name ${CYAN}${humidityEntity.original_name}${db} is not in the area "${CYAN}${db}" or doesn't have the label "${CYAN}${haPlatform.config.filterByLabel}${db}". Skipping...`,
+      `Split entity ${CYAN}${humidityEntity.entity_id}${nf} name ${CYAN}${humidityEntity.original_name}${nf} is not in the area "${CYAN}${nf}" or doesn't have the label "${CYAN}${haPlatform.config.filterByLabel}${nf}". Skipping...`,
     );
 
     // Cleanup the test environment
@@ -1712,8 +1854,117 @@ describe('HassPlatform', () => {
     haPlatform.ha.hassAreas.clear();
     haPlatform.ha.hassLabels.clear();
   });
+  it('should register a button device entity', async () => {
+    const device = {
+      area_id: null,
+      disabled_by: null,
+      entry_type: null,
+      id: 'd83398f83188759ed7329e97df00ee7c',
+      labels: [],
+      name: 'Device with button entity',
+      name_by_user: null,
+    } as unknown as HassDevice;
+    haPlatform.ha.hassDevices.set(device.id, device);
+    const entity = {
+      id: '0123456789abcdef',
+      entity_id: 'button.restart_router',
+      device_id: device.id,
+      disabled_by: null,
+      name: 'Restart router',
+    } as unknown as HassEntity;
+    haPlatform.ha.hassEntities.set(entity.id, entity);
+    const state = {
+      state: 'unknown',
+      attributes: { friendly_name: 'Friendly Restart router' },
+    } as HassState;
+    haPlatform.ha.hassStates.set(entity.entity_id, state);
 
-  it('should register a Switch split entity', async () => {
+    haPlatform.config.splitEntities = [];
+
+    // await setDebug(true);
+    await haPlatform.onStart('Test reason');
+
+    expect(loggerInfoSpy).toHaveBeenCalledWith(`Starting platform ${idn}${mockConfig.name}${rs}${nf}: Test reason`);
+    expect(loggerInfoSpy).toHaveBeenCalledWith(`Creating device ${idn}${device.name}${rs}${nf} id ${CYAN}${device.id}${nf}...`);
+    expect(loggerDebugSpy).toHaveBeenCalledWith(`Creating endpoint ${CYAN}${entity.entity_id}${db} for device ${idn}${device.name}${rs}${db} id ${CYAN}${device.id}${db}...`);
+    expect(loggerDebugSpy).toHaveBeenCalledWith(`Registering device ${dn}${device.name}${db}...`);
+    expect(matterbridge.addBridgedEndpoint).toHaveBeenCalled();
+  });
+
+  it('should register a Scene device entity', async () => {
+    const device = {
+      area_id: null,
+      disabled_by: null,
+      entry_type: null,
+      id: 'd83398f83188759ed7329e97df00ee7c',
+      labels: [],
+      name: 'Device with scene entity',
+      name_by_user: null,
+    } as unknown as HassDevice;
+    haPlatform.ha.hassDevices.set(device.id, device);
+    const entity = {
+      id: '0123456789abcdef',
+      entity_id: 'scene.turn_off_all_lights',
+      device_id: device.id,
+      disabled_by: null,
+      name: 'Turn off all lights',
+    } as unknown as HassEntity;
+    haPlatform.ha.hassEntities.set(entity.id, entity);
+    const state = {
+      state: 'off',
+      attributes: { friendly_name: 'Friendly Turn off all lights' },
+    } as HassState;
+    haPlatform.ha.hassStates.set(entity.entity_id, state);
+
+    haPlatform.config.splitEntities = [];
+
+    // await setDebug(true);
+    await haPlatform.onStart('Test reason');
+
+    expect(loggerInfoSpy).toHaveBeenCalledWith(`Starting platform ${idn}${mockConfig.name}${rs}${nf}: Test reason`);
+    expect(loggerInfoSpy).toHaveBeenCalledWith(`Creating device ${idn}${device.name}${rs}${nf} id ${CYAN}${device.id}${nf}...`);
+    expect(loggerDebugSpy).toHaveBeenCalledWith(`Creating endpoint ${CYAN}${entity.entity_id}${db} for device ${idn}${device.name}${rs}${db} id ${CYAN}${device.id}${db}...`);
+    expect(loggerDebugSpy).toHaveBeenCalledWith(`Registering device ${dn}${device.name}${db}...`);
+    expect(matterbridge.addBridgedEndpoint).toHaveBeenCalled();
+  });
+
+  it('should register a Scene split entity', async () => {
+    const device = {
+      area_id: null,
+      disabled_by: null,
+      entry_type: null,
+      id: 'd83398f83188759ed7329e97df00ee7c',
+      labels: [],
+      name: 'Device with scene entity',
+      name_by_user: null,
+    } as unknown as HassDevice;
+    haPlatform.ha.hassDevices.set(device.id, device);
+    const entity = {
+      id: '0123456789abcdef',
+      entity_id: 'scene.turn_off_all_lights',
+      device_id: device.id,
+      disabled_by: null,
+      name: 'Turn off all lights',
+    } as unknown as HassEntity;
+    haPlatform.ha.hassEntities.set(entity.id, entity);
+    const state = {
+      state: 'off',
+      attributes: { friendly_name: 'Friendly Turn off all lights' },
+    } as HassState;
+    haPlatform.ha.hassStates.set(entity.entity_id, state);
+
+    haPlatform.config.splitEntities = [entity.entity_id];
+    haPlatform.config.splitNameStrategy = 'Entity name';
+
+    await haPlatform.onStart('Test reason');
+
+    expect(loggerInfoSpy).toHaveBeenCalledWith(`Starting platform ${idn}${mockConfig.name}${rs}${nf}: Test reason`);
+    expect(loggerInfoSpy).toHaveBeenCalledWith(`Creating device for split entity ${idn}${entity.name}${rs}${nf} domain ${CYAN}scene${nf} name ${CYAN}turn_off_all_lights${nf}`);
+    expect(loggerDebugSpy).toHaveBeenCalledWith(`Registering device ${dn}${entity.name}${db}...`);
+    expect(matterbridge.addBridgedEndpoint).toHaveBeenCalled();
+  });
+
+  it('should register a Switch split entity with entity name', async () => {
     const device = {
       area_id: null,
       disabled_by: null,
@@ -1750,6 +2001,7 @@ describe('HassPlatform', () => {
     haPlatform.ha.hassStates.set(switchState.entity_id, switchState);
 
     haPlatform.config.splitEntities = [switchEntity.entity_id];
+    haPlatform.config.splitNameStrategy = 'Entity name';
 
     await haPlatform.onStart('Test reason');
 
@@ -1759,6 +2011,108 @@ describe('HassPlatform', () => {
     );
     expect(loggerDebugSpy).toHaveBeenCalledWith(`Registering device ${dn}${switchEntity.original_name}${db}...`);
     expect(matterbridge.addBridgedEndpoint).toHaveBeenCalled();
+  });
+
+  it('should register a Switch split entity with friendly name', async () => {
+    const device = {
+      area_id: null,
+      disabled_by: null,
+      entry_type: null,
+      id: 'd83398f83188759ed7329e97df00ee7c',
+      labels: [],
+      name: 'Switch with single entity',
+      name_by_user: null,
+    } as unknown as HassDevice;
+
+    const switchEntity = {
+      area_id: null,
+      device_id: 'd83398f83188759ed7329e97df00ee7c',
+      disabled_by: null,
+      entity_category: null,
+      entity_id: 'switch.single_entity',
+      has_entity_name: true,
+      id: '0b33a337cb83edefb1d310450ad2b0ac',
+      labels: [],
+      name: null,
+      original_name: 'Switch single entity',
+    } as unknown as HassEntity;
+
+    const switchState = {
+      entity_id: switchEntity.entity_id,
+      state: 'off',
+      attributes: {
+        friendly_name: 'Switch single entity friendly name',
+      },
+    } as unknown as HassState;
+
+    haPlatform.ha.hassDevices.set(device.id, device);
+    haPlatform.ha.hassEntities.set(switchEntity.entity_id, switchEntity);
+    haPlatform.ha.hassStates.set(switchState.entity_id, switchState);
+
+    haPlatform.config.splitEntities = [switchEntity.entity_id];
+    haPlatform.config.splitNameStrategy = 'Friendly name';
+
+    await haPlatform.onStart('Test reason');
+
+    expect(loggerInfoSpy).toHaveBeenCalledWith(`Starting platform ${idn}${mockConfig.name}${rs}${nf}: Test reason`);
+    expect(loggerInfoSpy).toHaveBeenCalledWith(
+      `Creating device for split entity ${idn}${switchState.attributes.friendly_name}${rs}${nf} domain ${CYAN}switch${nf} name ${CYAN}single_entity${nf}`,
+    );
+    expect(loggerDebugSpy).toHaveBeenCalledWith(`Registering device ${dn}${switchState.attributes.friendly_name}${db}...`);
+    expect(matterbridge.addBridgedEndpoint).toHaveBeenCalled();
+
+    haPlatform.config.splitNameStrategy = 'Entity name';
+  });
+
+  it('should register a button split entity with friendly name', async () => {
+    const device = {
+      area_id: null,
+      disabled_by: null,
+      entry_type: null,
+      id: 'd83398f83188759ed7329e97df00ee7c',
+      labels: [],
+      name: 'Device with button entity',
+      name_by_user: null,
+    } as unknown as HassDevice;
+
+    const buttonEntity = {
+      area_id: null,
+      device_id: 'd83398f83188759ed7329e97df00ee7c',
+      disabled_by: null,
+      entity_category: null,
+      entity_id: 'button.single_entity',
+      has_entity_name: true,
+      id: '0b33a337cb83edefb1d310450ad2b0ac',
+      labels: [],
+      name: null,
+      original_name: 'Button single entity',
+    } as unknown as HassEntity;
+
+    const buttonState = {
+      entity_id: buttonEntity.entity_id,
+      state: 'unknown',
+      attributes: {
+        friendly_name: 'Button single entity friendly name',
+      },
+    } as unknown as HassState;
+
+    haPlatform.ha.hassDevices.set(device.id, device);
+    haPlatform.ha.hassEntities.set(buttonEntity.entity_id, buttonEntity);
+    haPlatform.ha.hassStates.set(buttonState.entity_id, buttonState);
+
+    haPlatform.config.splitEntities = [buttonEntity.entity_id];
+    haPlatform.config.splitNameStrategy = 'Friendly name';
+
+    await haPlatform.onStart('Test reason');
+
+    expect(loggerInfoSpy).toHaveBeenCalledWith(`Starting platform ${idn}${mockConfig.name}${rs}${nf}: Test reason`);
+    expect(loggerInfoSpy).toHaveBeenCalledWith(
+      `Creating device for split entity ${idn}${buttonState.attributes.friendly_name}${rs}${nf} domain ${CYAN}button${nf} name ${CYAN}single_entity${nf}`,
+    );
+    expect(loggerDebugSpy).toHaveBeenCalledWith(`Registering device ${dn}${buttonState.attributes.friendly_name}${db}...`);
+    expect(matterbridge.addBridgedEndpoint).toHaveBeenCalled();
+
+    haPlatform.config.splitNameStrategy = 'Entity name';
   });
 
   it('should not register a Switch split entity if blacklisted', async () => {
@@ -1959,8 +2313,8 @@ describe('HassPlatform', () => {
     expect(child).toBeDefined();
     if (!child) return;
     */
-    await mbdevice.executeCommandHandler('on', {}, 'onOff', {}, mbdevice);
-    await mbdevice.executeCommandHandler('off', {}, 'onOff', {}, mbdevice);
+    await mbdevice.executeCommandHandler('on', {}, 'onOff', {} as any, mbdevice);
+    await mbdevice.executeCommandHandler('off', {}, 'onOff', {} as any, mbdevice);
   });
 
   it('should register a Light (on/off) device from ha', async () => {
