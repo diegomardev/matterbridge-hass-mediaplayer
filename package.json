@@ -1,10 +1,10 @@
 {
-  "name": "matterbridge-hass",
-  "version": "5.9.20",
-  "description": "Matterbridge hass with media_player",
-  "author": "https://github.com/diegomardev",
+  "name": "matterbridge-hass-mediaplayer",
+  "version": "1.0.0",
+  "description": "Matterbridge Home Assistant plugin with media_player support",
+  "author": "diegomardev",
   "license": "Apache-2.0",
-  "homepage": "https://www.npmjs.com/package/matterbridge-hass",
+  "homepage": "https://github.com/diegomardev/matterbridge-hass-mediaplayer",
   "type": "module",
   "main": "dist/module.js",
   "types": "dist/module.d.ts",
@@ -16,11 +16,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Luligu/matterbridge-hass.git"
+    "url": "git+https://github.com/diegomardev/matterbridge-hass-mediaplayer.git"
   },
   "bugs": {
-    "url": "https://github.com/Luligu/matterbridge-hass/issues"
-  },
+    "url": "https://github.com/diegomardev/matterbridge-hass-mediaplayer/issues"
+  }
   "funding": {
     "type": "buymeacoffee",
     "url": "https://www.buymeacoffee.com/luligugithub"
