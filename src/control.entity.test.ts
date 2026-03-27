@@ -66,8 +66,15 @@ describe('addControlEntity', () => {
   };
 
   it('returns undefined for unsupported domain', () => {
-    const [md, e, s] = make('media_player', 'x', {});
+    const [md, e, s] = make('unsupported_domain', 'x', {});
     expect(addControlEntity(md, e as any, s as any, commandHandler, subscribeHandler, mockLog)).toBeUndefined();
+  });
+  
+  it('media_player domain is supported', () => {
+    const [md, e, s] = make('media_player', 'x', {});
+    const ep = addControlEntity(md, e as any, s as any, commandHandler, subscribeHandler, mockLog);
+    expect(ep).toBeDefined();
+    expect(ep).toBe(e.entity_id);
   });
 
   it('returns undefined for sensor & binary_sensor with null deviceType', () => {
